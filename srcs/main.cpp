@@ -1,13 +1,27 @@
 #include "Logger.hpp"
+#include "ConfigParser.hpp"
+#include <deque>
 
-int main() {
-	Logger::logInfo("Server starting on port ", 8080);
-	Logger::logError("Failed to bind socket: ", "Address already in use");
-	Logger::logDebug("Connection pool size: ", 16, " | Timeout: ", 30, "s");
+int main(int argc, char** argv) {
+	std::string config_path = "conf/default.conf";
+	if (argc > 1)
+		config_path = argv[1];
 
-	Logger::logInfo("Single argument test");
-	Logger::logError("Error code: ", 404, " Not Found");
-	Logger::logDebug("This line only appears with -DDEBUG");
+	Logger::logInfo("Parsing configuration: ", config_path);
+
+	ConfigParser parser(config_path);
+	std::deque<Socket> sockets;
+
+	if (parser.ParseConfig(sockets) != 0) {
+		Logger::logError("Failed to parse configuration");
+		return 1;
+	}
+
+	Logger::logInfo("Successfully parsed ", sockets.size(), " socket(s)");
+	std::cout << "\n";
+
+	for (const auto& socket : sockets)
+		std::cout << socket.ToString() << std::endl;
 
 	return 0;
 }
