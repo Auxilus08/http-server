@@ -25,4 +25,11 @@ class Location {
 		~Location();
 
 		std::string ToString() const;
+
+		const std::string&	getMethods() const;
+		const StringPair&	getRedirection() const;
+		const std::string&	getRoot() const;
+		bool				getAutoindex() const;
+		const std::string&	getIndex() const;
+		const std::string&	getUpload() const;
 };

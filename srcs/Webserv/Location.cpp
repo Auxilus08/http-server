@@ -41,3 +41,10 @@ std::string Location::ToString() const {
 
 	return oss.str();
 }
+
+const std::string& Location::getMethods() const { return methods_; }
+const StringPair& Location::getRedirection() const { return redirection_; }
+const std::string& Location::getRoot() const { return root_; }
+bool Location::getAutoindex() const { return autoindex_; }
+const std::string& Location::getIndex() const { return index_; }
+const std::string& Location::getUpload() const { return upload_; }

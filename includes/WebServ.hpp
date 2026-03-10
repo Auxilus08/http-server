@@ -8,6 +8,7 @@
 #include <poll.h>
 #include "Socket.hpp"
 #include "Connection.hpp"
+#include "ClientConnection.hpp"
 #include "ConfigParser.hpp"
 
 class WebServ {
@@ -18,6 +19,7 @@ class WebServ {
 		std::map<int, std::unique_ptr<Connection>>	connections_;
 
 		void PollAvailableFDs();
+		void CheckTimeouts();
 		void CheckForNewConnection(int fd, short revents, int i);
 		void CloseConnection(int fd, int i);
 		void CloseAllConnections();

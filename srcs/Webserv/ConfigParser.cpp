@@ -168,7 +168,7 @@ std::pair<std::string, std::string> ConfigParser::ParseErrorPage(std::stringstre
 
 	static const std::regex code_re(
 		"(400|403|404|405|411|413|415|431|500|501|502|504|505)");
-	static const std::regex path_re("/[a-zA-Z0-9_/.-]+\\.html;");
+	static const std::regex path_re("[a-zA-Z0-9_/.~-]+\\.html;");
 
 	if (!std::regex_match(code, code_re))
 		throw "Invalid error_page status code";
@@ -234,7 +234,7 @@ std::pair<std::string, Location> ConfigParser::ParseLocation(std::stringstream& 
 		} else if (token == "root") {
 			if (!(ss >> token))
 				throw "Expected path after 'root'";
-			static const std::regex root_re("/[a-zA-Z0-9_/.-]*;");
+			static const std::regex root_re("[a-zA-Z0-9_/.~-]+;");
 			if (!std::regex_match(token, root_re))
 				throw "Invalid root path";
 			token.pop_back();
@@ -258,7 +258,7 @@ std::pair<std::string, Location> ConfigParser::ParseLocation(std::stringstream& 
 		} else if (token == "upload") {
 			if (!(ss >> token))
 				throw "Expected path after 'upload'";
-			static const std::regex upl_re("/[a-zA-Z0-9_/.-]*;");
+			static const std::regex upl_re("[a-zA-Z0-9_/.~-]+;");
 			if (!std::regex_match(token, upl_re))
 				throw "Invalid upload path";
 			token.pop_back();

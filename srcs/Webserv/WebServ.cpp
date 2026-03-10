@@ -61,6 +61,8 @@ void WebServ::Run() {
 
 		if (ready > 0)
 			PollAvailableFDs();
+
+		CheckTimeouts();
 	}
 
 	CloseAllConnections();
@@ -71,27 +73,51 @@ void WebServ::Run() {
 void WebServ::PollAvailableFDs() {
 	// Iterate backwards to safely erase elements by index
 	for (int i = static_cast<int>(pollFDs_.size()) - 1; i >= 0; --i) {
-		if (pollFDs_[i].revents == 0)
-			continue;
-
 		int fd = pollFDs_[i].fd;
 		short revents = pollFDs_[i].revents;
 
 		if (static_cast<size_t>(i) < sockets_.size()) {
 			// This is a listening socket
-			CheckForNewConnection(fd, revents, i);
-		} else {
-			// This is a client connection
-			if (revents & POLLERR) {
-				Logger::logError("POLLERR on fd ", fd, " — closing connection");
+			if (revents & POLLIN)
+				CheckForNewConnection(fd, revents, i);
+			continue;
+		}
+
+		// This is a client connection — look up in map
+		auto it = connections_.find(fd);
+		if (it == connections_.end())
+			continue;
+
+		Connection& conn = *it->second;
+
+		if (revents & POLLERR) {
+			Logger::logError("POLLERR on fd ", fd, " — closing connection");
+			CloseConnection(fd, i);
+		} else if (revents & (POLLIN | POLLHUP)) {
+			if (conn.ReceiveData(pollFDs_[i]) != 0)
 				CloseConnection(fd, i);
-			} else if (revents & POLLIN) {
-				Logger::logDebug("POLLIN on fd ", fd, " (client data ready)");
-				// TODO: read and parse request
-			} else if (revents & POLLOUT) {
-				Logger::logDebug("POLLOUT on fd ", fd, " (client writable)");
-				// TODO: send response
-			}
+		} else if (revents & POLLOUT) {
+			if (conn.SendData(pollFDs_[i]) != 0)
+				CloseConnection(fd, i);
+		} else if (conn.HasTimedOut()) {
+			Logger::logInfo("Timeout detected on fd ", fd, " — closing connection");
+			CloseConnection(fd, i);
+		}
+	}
+}
+
+// ─── Timeout sweep (called even when poll returns 0) ─────────────────────────
+
+void WebServ::CheckTimeouts() {
+	for (int i = static_cast<int>(pollFDs_.size()) - 1; i >= 0; --i) {
+		if (static_cast<size_t>(i) < sockets_.size())
+			continue;
+
+		int fd = pollFDs_[i].fd;
+		auto it = connections_.find(fd);
+		if (it != connections_.end() && it->second->HasTimedOut()) {
+			Logger::logInfo("Timeout detected on fd ", fd, " — closing connection");
+			CloseConnection(fd, i);
 		}
 	}
 }
@@ -99,7 +125,6 @@ void WebServ::PollAvailableFDs() {
 // ─── CheckForNewConnection ───────────────────────────────────────────────────
 
 void WebServ::CheckForNewConnection(int fd, short revents, int i) {
-	(void)i;
 
 	if (!(revents & POLLIN))
 		return;
@@ -129,8 +154,8 @@ void WebServ::CheckForNewConnection(int fd, short revents, int i) {
 	pfd.revents = 0;
 	pollFDs_.push_back(pfd);
 
-	// Create stub Connection
-	connections_[client_fd] = std::make_unique<Connection>(client_fd);
+	// Create ClientConnection (polymorphic) with Socket and WebServ refs
+	connections_[client_fd] = std::make_unique<ClientConnection>(client_fd, sockets_[i], *this);
 
 	Logger::logInfo("New connection accepted on fd ", client_fd);
 }
@@ -138,7 +163,7 @@ void WebServ::CheckForNewConnection(int fd, short revents, int i) {
 // ─── CloseConnection ─────────────────────────────────────────────────────────
 
 void WebServ::CloseConnection(int fd, int i) {
-	close(fd);
+	// Erase from map — unique_ptr destructor calls ~ClientConnection which close()s fd
 	connections_.erase(fd);
 
 	if (i >= 0 && static_cast<size_t>(i) < pollFDs_.size())
@@ -150,9 +175,7 @@ void WebServ::CloseConnection(int fd, int i) {
 // ─── CloseAllConnections ─────────────────────────────────────────────────────
 
 void WebServ::CloseAllConnections() {
-	// Close client connections
-	for (auto& [fd, conn] : connections_)
-		close(fd);
+	// Erase all client connections (destructors close fds)
 	connections_.clear();
 
 	// Close listening sockets
@@ -180,3 +203,4 @@ void WebServ::SwitchClientToSend(int fd) {
 	(void)fd;
 	// TODO: switch client fd from POLLIN to POLLOUT when response is ready
 }
+
