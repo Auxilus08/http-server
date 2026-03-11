@@ -30,6 +30,7 @@ class ClientConnection : public Connection {
 
 		int ReceiveData(struct pollfd& poll) override;
 		int SendData(struct pollfd& poll) override;
+		void ResetClientConnection();
 
 	private:
 		std::string		recv_buffer_;

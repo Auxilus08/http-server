@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <cerrno>
 #include <cstring>
+#include <filesystem>
 
 // ─── Constructor / Destructor ────────────────────────────────────────────────
 
@@ -23,6 +24,9 @@ int WebServ::Init() {
 		Logger::logError("Configuration file must have .conf extension: ", conf_);
 		return 1;
 	}
+
+	// Ensure temp directory exists
+	std::filesystem::create_directories("/tmp/webserv");
 
 	// Parse configuration
 	ConfigParser parser(conf_);

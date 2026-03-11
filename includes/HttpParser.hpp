@@ -30,6 +30,8 @@ class HttpParser {
 		std::string	DecodeUrlPath(const std::string& path);
 		static int	HexToInt(char c);
 		bool		HandleGet(bool autoIndex);
+		bool		CreateDirListing(const std::string& directory);
+		static bool	ExistIndex(const std::string& target, const std::string& index);
 
 	public:
 		HttpParser(ClientConnection& client);

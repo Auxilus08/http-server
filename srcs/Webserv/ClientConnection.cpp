@@ -11,6 +11,7 @@ ClientConnection::ClientConnection(int fd, Socket& sock, WebServ& webserv)
 	, sock_(sock)
 	, webserv_(webserv)
 	, parser_(*this)
+	, response_(*this)
 	, vhost_(nullptr)
 	, drain_incoming_(false)
 	, drained_bytes_(0) {
@@ -99,8 +100,48 @@ int ClientConnection::ReceiveData(struct pollfd& poll) {
 }
 
 int ClientConnection::SendData(struct pollfd& poll) {
-	(void)poll;
-	// Response sending — will be implemented in next step
-	Logger::logInfo("SendData called on fd ", fd_, " (stub — closing)");
-	return 1;
+	// Prepare response header on first call
+	if (stage_ == Stage::kResponse) {
+		response_.PrepareResponse();
+		stage_ = Stage::kSending;
+	}
+
+	// Send response (one send() per call)
+	int result = response_.SendResponse(poll);
+	if (result != 0) {
+		if (file_.is_open())
+			file_.close();
+		return 1;
+	}
+
+	// Check if response is fully sent (poll switched back to POLLIN)
+	if (poll.events == POLLIN) {
+		if (file_.is_open())
+			file_.close();
+
+		if (status_ != "200") {
+			// Error responses: close connection or drain
+			Logger::logDebug("Response sent (", status_, ") — closing fd ", fd_);
+			return 1;
+		}
+
+		// HTTP keep-alive: reset for next request
+		Logger::logDebug("Response sent (200) — keep-alive on fd ", fd_);
+		ResetClientConnection();
+	}
+
+	return 0;
+}
+
+void ClientConnection::ResetClientConnection() {
+	parser_.ResetParser();
+	response_.ResetResponse();
+	status_ = "200";
+	stage_ = Stage::kHeader;
+	vhost_ = nullptr;
+	drain_incoming_ = false;
+	drained_bytes_ = 0;
+	recv_buffer_.clear();
+	if (file_.is_open())
+		file_.close();
 }

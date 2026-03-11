@@ -94,7 +94,14 @@ VirtualHost* Socket::FindVhost(const std::string& host) {
 	if (host.empty()) {
 		return first_vhost_;
 	}
-	auto it = v_hosts_.find(host);
+
+	// Strip :port from Host header (e.g., "one.example.com:8080" → "one.example.com")
+	std::string hostname = host;
+	size_t colon = hostname.find(':');
+	if (colon != std::string::npos)
+		hostname = hostname.substr(0, colon);
+
+	auto it = v_hosts_.find(hostname);
 	if (it == v_hosts_.end())
 		return first_vhost_;
 	return &it->second;

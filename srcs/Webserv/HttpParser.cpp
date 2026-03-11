@@ -2,6 +2,8 @@
 #include "ClientConnection.hpp"
 #include "Logger.hpp"
 #include <filesystem>
+#include <unistd.h>
+#include <cstdio>
 
 // ─── Constructor / Destructor ────────────────────────────────────────────────
 
@@ -313,29 +315,17 @@ bool HttpParser::HandleGet(bool autoIndex) {
 	}
 
 	if (fs::is_directory(request_target_)) {
-		// Ensure trailing slash
+		// Ensure trailing slash for directory path
 		std::string target = request_target_;
 		if (target.back() != '/')
 			target += '/';
 
-		// Try index file
-		if (!index_.empty()) {
-			std::string index_path = target + index_;
-			if (fs::exists(index_path) && fs::is_regular_file(index_path)) {
-				request_target_ = index_path;
-			} else if (autoIndex) {
-				// Directory listing — will implement later
-				Logger::logInfo("Autoindex for: ", request_target_);
-				client_.stage_ = ClientConnection::Stage::kResponse;
-				return true;
-			} else {
-				client_.status_ = "404";
-				return false;
-			}
+		// Check if index file exists
+		if (!index_.empty() && ExistIndex(target, index_)) {
+			request_target_ = target + index_;
 		} else if (autoIndex) {
-			Logger::logInfo("Autoindex for: ", request_target_);
-			client_.stage_ = ClientConnection::Stage::kResponse;
-			return true;
+			// Generate directory listing
+			return CreateDirListing(target);
 		} else {
 			client_.status_ = "404";
 			return false;
@@ -350,6 +340,83 @@ bool HttpParser::HandleGet(bool autoIndex) {
 	}
 
 	Logger::logInfo("Opened file: ", request_target_);
+	client_.stage_ = ClientConnection::Stage::kResponse;
+	return true;
+}
+
+// ─── ExistIndex ─────────────────────────────────────────────────────────────
+
+bool HttpParser::ExistIndex(const std::string& target, const std::string& index) {
+	std::string path = target + index;
+	return access(path.c_str(), R_OK) == 0;
+}
+
+// ─── CreateDirListing ───────────────────────────────────────────────────────
+
+bool HttpParser::CreateDirListing(const std::string& directory) {
+	namespace fs = std::filesystem;
+
+	// Create temp file path using the client fd for uniqueness
+	std::string tmp_path = "/tmp/webserv/dir_list"
+						   + std::to_string(client_.getFd());
+
+	client_.file_.open(tmp_path,
+		std::ios::in | std::ios::out | std::ios::app | std::ios::binary);
+	if (!client_.file_.is_open()) {
+		client_.status_ = "500";
+		return false;
+	}
+
+	// Write HTML directory listing
+	client_.file_ << "<!DOCTYPE html>\n<html>\n<head>\n"
+		<< "<meta charset=\"UTF-8\">\n"
+		<< "<title>Index of " << directory << "</title>\n"
+		<< "<style>\n"
+		<< "  body { font-family: 'Segoe UI', sans-serif; margin: 2rem;"
+		<< " background: #1a1a2e; color: #e0e0e0; }\n"
+		<< "  h1 { color: #7c4dff; border-bottom: 1px solid #333; "
+		<< "padding-bottom: 0.5rem; }\n"
+		<< "  ul { list-style: none; padding: 0; }\n"
+		<< "  li { padding: 0.3rem 0; }\n"
+		<< "  a { color: #4fc3f7; text-decoration: none; }\n"
+		<< "  a:hover { text-decoration: underline; }\n"
+		<< "  .dir { color: #81c784; }\n"
+		<< "</style>\n</head>\n<body>\n"
+		<< "<h1>Index of " << directory << "</h1>\n<ul>\n";
+
+	// Parent directory link
+	client_.file_ << "  <li><a href=\"../\">../</a></li>\n";
+
+	// List directory entries
+	try {
+		for (const auto& entry : fs::directory_iterator(directory)) {
+			std::string name = entry.path().filename().string();
+			if (entry.is_directory()) {
+				client_.file_ << "  <li><a class=\"dir\" href=\""
+					<< name << "/\">" << name << "/</a></li>\n";
+			} else {
+				client_.file_ << "  <li><a href=\"" << name << "\">"
+					<< name << "</a></li>\n";
+			}
+		}
+	} catch (const fs::filesystem_error& e) {
+		Logger::logError("directory_iterator: ", e.what());
+		client_.file_.close();
+		std::remove(tmp_path.c_str());
+		client_.status_ = "500";
+		return false;
+	}
+
+	client_.file_ << "</ul>\n</body>\n</html>\n";
+
+	// Flush and seek to beginning so SendResponse can read it
+	client_.file_.flush();
+	client_.file_.seekg(0, std::ios::beg);
+
+	// Delete the temp file from disk — the open fstream keeps the fd alive
+	std::remove(tmp_path.c_str());
+
+	Logger::logInfo("Generated directory listing for: ", directory);
 	client_.stage_ = ClientConnection::Stage::kResponse;
 	return true;
 }
